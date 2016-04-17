@@ -1,0 +1,3 @@
+redclumpall1.txt
+redclumpall2.txt
+redclumpall3.txt
