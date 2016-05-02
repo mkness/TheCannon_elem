@@ -1,5 +1,4 @@
-"""
-This file is part of The Cannon analysis project.
+""" This file is part of The Cannon analysis project.
 Copyright 2014 Melissa Ness.
 # NOTE THE ISSUE MAY BE THE Fe_H SCALE THIS IS DIFFERENT IN THE UNFILTERED VERSIONA
 # TO DO - CHECK THE UNFILTERED VERSION WITH THE 5 LABELS HERE GIVES THE SAME RESULTS 
@@ -29,32 +28,187 @@ from scipy import ndimage
 from scipy import optimize as opt
 import numpy as np
 from datetime import datetime
+import multiprocessing as _mp
+from multiprocessing.pool import Pool as _Pool
+import signal as _signal
+from multiprocessing import TimeoutError
+import functools as _fntools
+
+
+def _initializer_wrapper(actual_initializer, *rest):
+    """
+    We ignore SIGINT. It's up to our parent to kill us in the typical
+    condition of this arising from ``^C`` on a terminal. If someone is
+    manually killing us with that signal, well... nothing will happen.
+    """
+    _signal.signal(_signal.SIGINT, _signal.SIG_IGN)
+    if actual_initializer is not None:
+        actual_initializer(*rest)
+
+
+class Partial(object):
+    """
+    Partial(func, *args, **keywords) - function class that mimics the
+    functools.partial behavior but makes sure it stays picklable.
+    The new function is a partial application of the given arguments and
+    keywords.  The remaining arguments are sent at the end of the fixed
+    arguments.  Unless you set the allkeywords option, which gives more
+    flexibility to the partial definition.
+    Note: lambda functions are cast to PicklableLambda
+    Parameters
+    ----------
+        func: callable
+            the function from which the partial application will be made
+        *args: tuple
+            arguments to fix during the call
+        **kwargs: dict
+            keywords to the function call
+    Outputs:
+    ---------
+        returns a callable function with preserved/wrapped documentation names etc.
+    Example:
+    >>> def fn(a, b, *args, **kwargs):
+        ... return a, b, args, kwargs
+    """
+    def __init__(self, func, *args, **kwargs):
+
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+        _fntools.update_wrapper(self, func)
+
+    def __repr__(self):
+        return 'Partial({}), args={}, kwargs={}\n'.format(self.func.__name__, self.args, self.kwargs) + object.__repr__(self)
+
+    def __call__(self, *fargs, **fkeywords):
+        newkeywords = self.kwargs.copy()
+        newkeywords.update(fkeywords)
+        return self.func(*(self.args + fargs), **newkeywords)
+
+
+class Pool(_Pool):
+    """ Overloadind the built-in class to make a context manager
+    A process pool object which controls a pool of worker processes to
+    which jobs can be submitted. It supports asynchronous results with
+    timeouts and callbacks and has a parallel map implementation.
+    """
+    wait_timeout = 3600
+
+    def __init__(self, ncpu, initializer=None, initargs=(),
+                 maxtasksperchild=None, limit=True):
+        """
+        INPUTS
+        ------
+        ncpu: int (default 0, i.e, built-in map behavior)
+            number of cpu to use for the mapping.
+            0 is equivalent to calling the built-in map function
+            <0 is equivalent to requesting all cpus
+        initializer: callable
+            if set, each worker process will call initializer(*initargs) when
+            it starts.
+        initargs: tuple
+            arguments to use with the initializer
+        maxtasksperchild: int
+            number of tasks a worker process can complete before it will exit
+            and be replaced with a fresh worker process, to enable unused
+            resources to be freed. The default maxtasksperchild is None, which
+            means worker processes will live as long as the pool.
+        limit: bool (default True)
+            if ncpu is greater than the number of available cpus, setting this
+            keyword will limit the request to the maximum available
+            Note: sometimes the os load controller does awesome and some speed-up
+            could be obtained when requesting more cpus than available
+        """
+        _n = _mp.cpu_count()
+        if (ncpu <= 0):   # use all available cpus
+            self._n = _n
+        elif (ncpu > _n) & (limit is True):
+            self._n = _n
+        else:
+            self._n = ncpu
+
+        new_initializer = Partial(_initializer_wrapper, initializer)
+        _Pool.__init__(self, processes=self._n, initializer=new_initializer,
+                       initargs=initargs, maxtasksperchild=maxtasksperchild)
+
+    def map(self, func, iterable, chunksize=None):
+        """
+        Equivalent of ``map()`` built-in, without swallowing
+        ``KeyboardInterrupt``.
+        :param func:
+            The function to apply to the items.
+        :param iterable:
+            An iterable of items that will have `func` applied to them.
+        """
+        # The key magic is that we must call r.get() with a timeout, because
+        # a Condition.wait() without a timeout swallows KeyboardInterrupts.
+        r = self.map_async(func, iterable, chunksize)
+
+        while True:
+            try:
+                return r.get(self.wait_timeout)
+            except TimeoutError:
+                pass
+            except KeyboardInterrupt:
+                self.terminate()
+                self.join()
+                raise
+            # Other exceptions propagate up.
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        pass
+
+    def __repr__(self):
+        return 'Pool (ncpu={})\n{}'.format( self._n, _Pool.__repr__(self) )
+
+
+class map_wrapper(object):
+    def __init__(self, func):
+        """ decorator that takes a tuple of arguments as input and
+	expand it to the wrapped function call
+
+	    eg:   wrapped_func([a, b, c]) == func(a, b, c)
+	"""
+        self.func = func
+
+    def __call__(self, args):
+        return self.func(*args)
+
 
 #multiprocessing
 nthreads = 1
-if nthreads ==1:
+if nthreads == 1:
   pmap = map
 else: 
-  from multiprocessing import Pool  
   P = Pool(nthreads)
   pmap = P.map
 
 
 # to do item : Fix this 
-filteroff = 1
-#endval = 'test_multi'
-endval = 'nofilt_large_150416'
-# need to fix this 
-#endval = 'test_filtoff2'
+filteroff = 0 # if 1 filters are off, if 0 filters are on 
+calflag = 0 # if 1 get the normalised calibrationd data and if 0 doing test on something else like redclump
+endval = 'nofilt_large_150416_3_cutdown'
+endval = 'filt_large_150416_3_CNO'
+endval = 'nofilt_large_150416_3'
+endval = 'filt_large_150416_3'
+endval = 'nofilt_large_150416_3'
+endval = 'nofilt_large_260416_1'
+endval = 'filt_large_260416_1'
 normed_training_data = 'normed_dr13_'+endval+'.pickle'
-#normed_training_data = 'normed_dr13_test_filtoff.pickle'
 coeffs_file = "coeffs_dr13_"+endval+".pickle"
 tags_file = "tags_dr13_30eB_"+endval+".pickle"
+#fn = "training_dr13e2_large.list"
+#fn = "training_dr13e2_large_cleaner.list"
 #fn = "training_dr13e2_large_test.list"
-fn = "training_dr13e2_large.list"
+#fn = "training_dr13e2_large_cleaner_H.list"
+fn = "training_dr13e2_large_cleaner_H_fix.list"
 fn_filt = 'mkn_filters_edit.txt' # this one now has the real filters in 
 fn_filt_1 = 'filters_14.txt' # this one now has the real filters in 
 nelem = 22
+#nelem = 14
 
 def getscale(in_array): 
   valin = np.percentile(in_array, (2.5, 50, 97.5))
@@ -69,6 +223,10 @@ def rescale(in_array):
 def unscale(scaled_val, in_array):
   valscale, valoff = getscale(in_array) 
   return  scaled_val*valscale  + valoff 
+
+def unscale_covs(scaled_val, in_array):
+  valscale, valoff = getscale(in_array) 
+  return  scaled_val*valscale  
 
 T_est,g_est,feh_est,alpha_est, T_A, g_A, feh_A,rc_est = np.loadtxt(fn, usecols = (1,2,3,4,1,2,3,4), unpack =1) 
 C, N, O, Na, Mg, Al, Si, P, S, K, Ca, Ti, V, Cr, Mn,Co, Fe, Ni, Cu, Rb = np.loadtxt(fn, usecols = (5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23, 26), unpack =1)
@@ -530,6 +688,7 @@ def get_normalized_training_data_tsch(pixlist,numtake):
   Cu = rescale(Cu) 
   labels = ["teff", "logg", "feh", "C", "N", "O", "Na", "Mg", "Al", "Si", "S", "K", "Ca", "Ti", "V", "Mn", "Ni", "P", "Cr", "Co", "Cu", "Rb"][0:nelem]
   label_array = [T_est, g_est, feh_est, C, N, O, Na, Mg, Al, Si, S, K, Ca, Ti, V, Mn, Ni, P, Cr, Co, Cu, Rb][0:nelem]
+  #filter_array = [T_filt, g_filt, feh_filt, C_filt, N_filt, O_filt, Na_filt, Mg_filt, Al_filt, Si_filt, S_filt, K_filt, Ca_filt, Ti_filt, V_filt, Mn_filt, Ni_filt, P_filt, Cr_filt, Co_filt, Cu_filt, Rb_filt][0:nelem]
   filter_array = [T_filt, g_filt, feh_filt, C_filt, N_filt, O_filt, Na_filt, Mg_filt, Al_filt, Si_filt, S_filt, K_filt, Ca_filt, Ti_filt, V_filt, Mn_filt, Ni_filt, P_filt, Cr_filt, Co_filt, Cu_filt, Rb_filt][0:nelem]
   if filteroff == 1: 
     filter_array = [T_filt,g_filt,feh_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt][0:nelem]
@@ -596,7 +755,8 @@ def get_normalized_training_data_tsch(pixlist,numtake):
   file_in.close()
   return dataall, filterall, metaall, labels , Ametaall, cluster_name, ids
 
-def do_one_regression_at_fixed_scatter(data, filter1, features, scatter=0.):
+
+def do_one_regression_at_fixed_scatter(args, **kwargs):
     """
     Parameters
     ----------
@@ -625,6 +785,8 @@ def do_one_regression_at_fixed_scatter(data, filter1, features, scatter=0.):
         :math:`\sum(\log(Cinv))`
     use the same terminology as in the paper 
     """
+    data, filter1, features = args
+    scatter = kwargs.get('scatter', 0)
     nmeta = filter1.shape[0]
     nobjs, npars = features.shape
     assert npars == nmeta * (nmeta + 3) / 2 + 1
@@ -659,14 +821,12 @@ def do_one_regression_at_fixed_scatter(data, filter1, features, scatter=0.):
         assert False
     for a,b in zip(coeff_ind ,coeff):
       coeff_full[a] = b
-    #small = coeff_full < 0.000001
-    #large = coeff_full > 500
-    #coeff_full[small] = 0.
-    #coeff_full[large] = 500.
     chi = np.sqrt(Cinv) * (x - np.dot(M, coeff)) 
     logdet_Cinv = np.sum(np.log(Cinv)) 
     #print nobjs, nmeta, D, filter_features_bool.shape, coeff_ind, filter1, filter_features,  np.linalg.eigvalsh(MTCinvM) 
     #assert False 
+    #print type(coeff_full)
+    #print np.shape(coeff_full)
     return (coeff_full, MTCinvM, chi, logdet_Cinv )
 
 def do_one_regression(data, filter1, metadata):
@@ -709,8 +869,7 @@ def do_regressions(dataall, filterall, features):
     featuresall = np.zeros((nlam,nobj,npred))
     #featuresall = np.memmap("featuresall", dtype='float64', mode='w+', shape=(nlam, nobj, npred))
     featuresall[:, :, :] = features[None, :, :]
-    return pmap(do_one_regression_at_fixed_scatter, dataall, filterall, featuresall) 
-    #return pmap(target=do_one_regression_at_fixed_scatter, args=( dataall, filterall, featuresall) )
+    return pmap(do_one_regression_at_fixed_scatter, zip(dataall, filterall, featuresall))
 
 def train(dataall, filterall, metaall, order, fn, Ametaall, cluster_name, logg_cut=100., teff_cut=0., leave_out=None):
     """
@@ -746,23 +905,30 @@ def train(dataall, filterall, metaall, order, fn, Ametaall, cluster_name, logg_c
       scatters = 0.0*chisqs
 
     fd = open(fn, "w")
-    # DUMMY covs as too big 
-    errval = [] 
-    for i in range(0,len(labels)):
-      errval.append(covs[:,i,i]**0.5) 
+    # DUMMY covs as too big - when filters are on the covs is the wrong shape - only the number of training spectra long 
+    #errval = [] 
+    print np.shape(covs) 
+    #scovs = np.shape(covs)[1]
+    #slen = len(features) 
+    #for i in range(0,slen-1):
+    #  errval.append(covs[:,i,i]**0.5) 
     #  
-    pickle.dump((dataall, metaall, labels, offsets, coeffs, errval, scatters,chis,chisqs), fd)
-    #pickle.dump((dataall, metaall, labels, offsets, coeffs, covs, scatters,chis,chisqs), fd)
+    #pickle.dump((dataall, metaall, labels, offsets, coeffs, errval, scatters,chis,chisqs), fd)
+    covs = 0 
+    pickle.dump((dataall, metaall, labels, offsets, coeffs, covs, scatters,chis,chisqs), fd)
     fd.close()
 
-def get_goodness_fit(fn_pickle, filein, Params_all, MCM_rotate_all):
+def get_goodness_fit(fn_pickle, filein, Params_all_scaled, MCM_rotate_all):
     fd = open(fn_pickle,'r')
     dataall, metaall, labels, schmoffsets, coeffs, covs, scatters, chis, chisq = pickle.load(fd) 
     #assert np.all(schmoffsets == offsets) 
     assert (round(offsets[-1],4)) == round(schmoffsets[-1],4) 
     fd.close() 
-    file_with_star_data = str(filein)+"_alpha.pickle"
-    file_with_star_data = 'cal.pickle'
+    print str(filein)
+    if filein == 'cal_dr12':
+      file_with_star_data = 'cal.pickle'
+    else: 
+      file_with_star_data = str(filein)+"_alpha.pickle"
     file_normed = normed_training_data.split('.pickle')[0]
     if filein != file_normed: 
       f_flux = open(file_with_star_data, 'r') 
@@ -771,7 +937,7 @@ def get_goodness_fit(fn_pickle, filein, Params_all, MCM_rotate_all):
       f_flux = open(normed_training_data, 'r') 
       flux, filterall, metaall, labels, Ametaall, cluster_name, ids = pickle.load(f_flux)
     f_flux.close() 
-    labels = Params_all 
+    labels = Params_all_scaled 
     nlabels = np.shape(labels)[1]
     nstars = np.shape(labels)[0]
     features_data = np.ones((nstars, 1))
@@ -875,6 +1041,7 @@ def nonlinear_invert(f, sigmas, coeffs, scatters,labels):
     try: 
         model, cov = opt.curve_fit(_func, xdata, f, sigma = sigmavals, maxfev=18000, p0 = guessit)
     except RuntimeError:
+        print "there has been a runtime error"
 	model = [999]*len(labels)
 	cov = np.ones((len(labels),len(labels) ))
     return model, cov
@@ -891,6 +1058,7 @@ def infer_labels_nonlinear(fn_pickle,testdata, ids, fout_pickle, weak_lower,weak
     nstars = (testdata.shape)[1]
     nlabels = len(labels)
     Params_all = np.zeros((nstars, nlabels))
+    Params_all_scaled = np.zeros((nstars, nlabels))
     MCM_rotate_all = np.zeros((nstars, np.shape(coeffs)[1]-1, np.shape(coeffs)[1]-1.))
     covs_all = np.zeros((nstars,nlabels, nlabels))
     for jj in range(0,nstars):
@@ -906,8 +1074,10 @@ def infer_labels_nonlinear(fn_pickle,testdata, ids, fout_pickle, weak_lower,weak
       f = ydata_norm 
       Params,covs = nonlinear_invert(f,ysigma, coeffs, scatters,labels)
       Params= Params+offsets 
+      Params_scaled= Params+offsets 
       for i in range(0,len(scales)):
           Params[i] = unscale(Params[i], inputs[i]) 
+          #covs[i] = unscale_covs(covs[i], inputs[i]) 
       #for a,b in zip(Params_unscaled, scales):
          #Params_scaled = unscaled(a,b)
       num_cut = -1*(np.shape(coeffs)[-1] -1) 
@@ -915,66 +1085,26 @@ def infer_labels_nonlinear(fn_pickle,testdata, ids, fout_pickle, weak_lower,weak
       Cinv = 1. / (ysigma ** 2 + scatters ** 2)
       MCM_rotate = np.dot(coeffs_slice.T, Cinv[:,None] * coeffs_slice)
       Params_all[jj,:] = Params 
+      Params_all_scaled[jj,:] = Params_scaled
       MCM_rotate_all[jj,:,:] = MCM_rotate 
       covs_all[jj,:,:] = covs
     filein = fout_pickle.split('_tags') [0] 
     if filein == 'self_2nd_order': 
       file_in = open(fout_pickle, 'w')  
       file_normed = normed_training_data.split('.pickle')[0]
-      chi2 = get_goodness_fit(fn_pickle, file_normed, Params_all, MCM_rotate_all)
+      chi2 = get_goodness_fit(fn_pickle, file_normed, Params_all_scaled, MCM_rotate_all)
       #chi2 = 1.
       chi2_def = chi2#/len(xdata)*1.
       pickle.dump((Params_all, covs_all,chi2_def,ids),  file_in)
       file_in.close()
     else: 
-      chi2 = get_goodness_fit(fn_pickle, filein, Params_all, MCM_rotate_all)
+      chi2 = get_goodness_fit(fn_pickle, filein, Params_all_scaled, MCM_rotate_all)
       #chi2 = 1.
       #chi2_def = chi2/len(xdata)*1.
       chi2_def = chi2
       file_in = open(fout_pickle, 'w')  
       pickle.dump((Params_all, covs_all, chi2_def, ids),  file_in)
       file_in.close()
-    return Params_all , MCM_rotate_all
-
-def infer_labels(fn_pickle,testdata, fout_pickle, weak_lower,weak_upper):
-    """
-    best log g = weak_lower = 0.95, weak_upper = 0.98
-    best teff = weak_lower = 0.95, weak_upper = 0.99
-    best_feh = weak_lower = 0.935, weak_upper = 0.98 
-    this returns the parameters for a field of data  - and normalises if it is not already normalised 
-    this is slow because it reads a pickle file 
-    """
-    file_in = open(fn_pickle, 'r') 
-    dataall, metaall, labels, schmoffsets, coeffs, covs, scatters,chis,chisqs = pickle.load(file_in)
-    assert (round(offsets[-1],4)) == round(schmoffsets[-1],4) 
-    #assert np.all(offsets == schmoffsets) 
-    file_in.close()
-    nstars = (testdata.shape)[1]
-    nlabels = len(labels)
-    Params_all = np.zeros((nstars, nlabels))
-    MCM_rotate_all = np.zeros((nstars, nlabels, nlabels))
-    for jj in range(0,nstars):
-      if np.any(testdata[:,jj,0] != dataall[:, 0, 0]):
-          print testdata[range(5),jj,0], dataall[range(5),0,0]
-          assert False
-      xdata = testdata[:,jj,0]
-      ydata = testdata[:,jj,1]
-      ysigma = testdata[:,jj,2]
-      ydata_norm = ydata  - coeffs[:,0] # subtract the np.mean 
-      coeffs_slice = coeffs[:,-3:]
-      #ind1 = np.logical_and(logical_and(dataall[:,jj,0] > 16200., dataall[:,jj,0] < 16500.), np.logical_and(ydata > weak_lower , ydata < weak_upper)) 
-      ind1 =  np.logical_and(ydata > weak_lower , ydata < weak_upper)
-      Cinv = 1. / (ysigma ** 2 + scatters ** 2)
-      MCM_rotate = np.dot(coeffs_slice[ind1].T, Cinv[:,None][ind1] * coeffs_slice[ind1])
-      MCy_vals = np.dot(coeffs_slice[ind1].T, Cinv[ind1] * ydata_norm[ind1]) 
-      Params = np.linalg.solve(MCM_rotate, MCy_vals)
-      Params = Params + offsets 
-      print Params
-      Params_all[jj,:] = Params 
-      MCM_rotate_all[jj,:,:] = MCM_rotate 
-    file_in = open(fout_pickle, 'w')  
-    pickle.dump((Params_all, MCM_rotate_all),  file_in)
-    file_in.close()
     return Params_all , MCM_rotate_all
 
 
@@ -1277,12 +1407,12 @@ if __name__ == "__main__":
         train(dataall, filterall, metaall, 2,  fpickle2, Ametaall, cluster_name, logg_cut= 40.,teff_cut = 0.)
       #  assert False
     self_flag = 0
-    #self_flag = 2
+    self_flag = 2
 
     if self_flag < 1:
       startTime = datetime.now()
       a = open('cal_dr12.txt', 'r') 
-      #a = open('redclump.txt', 'r') 
+      a = open('redclump.txt', 'r') 
       #a = open('all_test.txt', 'r') 
       al = a.readlines()
       bl = []
@@ -1291,8 +1421,10 @@ if __name__ == "__main__":
       for each in bl: 
         testfile = each
         field = testfile.split('.txt')[0]+'_' #"4332_"
-        testdataall, ids = get_normalized_test_data_tsch_cal(testfile,pixlist)
-        #testdataall, ids = get_normalized_test_data_tsch(testfile,pixlist)
+        if calflag == 1: 
+          testdataall, ids = get_normalized_test_data_tsch_cal(testfile,pixlist)
+        else:
+          testdataall, ids = get_normalized_test_data_tsch(testfile,pixlist)
         testmetaall, inv_covars = infer_labels_nonlinear(coeffs_file, testdataall, ids, field+tags_file,0.00,1.40) 
         print(datetime.now()-startTime)
     if self_flag == 2:
