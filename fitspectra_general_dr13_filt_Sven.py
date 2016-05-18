@@ -35,7 +35,7 @@ from multiprocessing import TimeoutError
 import functools as _fntools
 
 
-#multiprocessing - this does not work 
+#multiprocessing: this does not work yet 
 nthreads = 1
 if nthreads == 1:
   pmap = map
@@ -43,25 +43,20 @@ else:
   P = Pool(nthreads)
   pmap = P.map
 
-filteroff = 1 # if 1 filters are off, if 0 filters are on 
-filteroff = 0 # if 1 filters are off, if 0 filters are on 
-calflag = 0 # if 1 get the normalised calibrationd data and if 0 doing test on something else like redclump
-calflag = 1 # if 1 get the normalised calibrationd data and if 0 doing test on something else like redclump
-endval = 'nofilt_large_010516_1'
-endval = 'filt_large_010516_YS'
+filteroff = 1 # Filters off is true
+filteroff = 0 #  Filters on (Filters off is false) 
+calflag = 1 # If doing test on special calibratoin data this flag is 1 
+calflag = 0 # 
+endval = 'filt_KH' # output file name string 
 normed_training_data = 'normed_dr13_'+endval+'.pickle'
 coeffs_file = "coeffs_dr13_"+endval+".pickle"
 tags_file = "tags_dr13_30eB_"+endval+".pickle"
-#fn = "training_dr13e2_large.list"
-#fn = "training_dr13e2_large_cleaner.list"
-#fn = "training_dr13e2_large_test.list"
-#fn = "training_dr13e2_large_cleaner_H.list"
-fn = "training_dr13e2_large_cleaner_H_fix_dr13.list"
-fn_filt = 'YS_filters.txt' # this one now has the real filters in 
-fn_filt_1 = 'filters_14.txt' # this one now has the real filters in 
-nelem = 22
-#nelem = 14
+fn = "KH_training.txt"
+fn_filt = '../APOGEE_DR12/mkn_filters_wider1.txt' # this one now has the real filters in 
+fn_filt_1 = 'filters_14.txt' # # second set of filters but just contains 1's
+nelem = 22 # can truncate how many elements testing on
 
+# these are all to scale the values so all on the same scale 
 def getscale(in_array): 
   valin = np.percentile(in_array, (2.5, 50, 97.5))
   valscale = (valin[2]-valin[0])/4.
@@ -80,15 +75,39 @@ def unscale_covs(scaled_val, in_array):
   valscale, valoff = getscale(in_array) 
   return  scaled_val*valscale  
 
-T_est,g_est,feh_est,alpha_est, T_A, g_A, feh_A,rc_est = np.loadtxt(fn, usecols = (1,2,3,4,1,2,3,4), unpack =1) 
-C, N, O, Na, Mg, Al, Si, P, S, K, Ca, Ti, V, Cr, Mn,Co, Fe, Ni, Cu, Rb = np.loadtxt(fn, usecols = (5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23, 26), unpack =1)
-T_est,g_est,feh_est,alpha_est, T_A, g_A, feh_A,rc_est = np.loadtxt(fn, usecols = (1,2,3,4,1,2,3,4), unpack =1) 
-C, N, O, Na, Mg, Al, Si, P, S, K, Ca, Ti, V, Cr, Mn,Co, Fe, Ni, Cu,Rb = np.loadtxt(fn, usecols = (5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,26), unpack =1)
-inputs = [T_est, g_est, feh_est, C, N, O, Na, Mg, Al, Si, S, K, Ca, Ti, V, Mn, Ni, P, Cr, Co, Cu, Rb]
-offsets = np.array([np.mean(rescale(T_est)), np.mean(rescale(g_est)), np.mean(rescale(feh_est)), np.mean(rescale(C)), np.mean(rescale(N)), np.mean(rescale(O)), np.mean(rescale(Na)), np.mean(rescale(Mg)), np.mean(rescale(Al)), np.mean(rescale(Si)), np.mean(rescale(S)), np.mean(rescale(K)), np.mean(rescale(Ca)), np.mean(rescale(Ti)), np.mean(rescale(V)), np.mean(rescale(Mn)), np.mean(rescale(Ni)), np.mean(rescale(P)), np.mean(rescale(Cr)), np.mean(rescale(Co)), np.mean(rescale(Cu)), np.mean(rescale(Rb))]) 
-offsets = offsets[0:nelem]
 
-scales = np.array([np.mean(getscale(T_est)), np.mean(getscale(g_est)), np.mean(getscale(feh_est)), np.mean(getscale(C)), np.mean(getscale(N)), np.mean(getscale(O)), np.mean(getscale(Na)), np.mean(getscale(Mg)), np.mean(getscale(Al)), np.mean(getscale(Si)), np.mean(getscale(S)), np.mean(getscale(K)), np.mean(getscale(Ca)), np.mean(getscale(Ti)), np.mean(getscale(V)), np.mean(getscale(Mn)), np.mean(getscale(Ni)), np.mean(getscale(P)), np.mean(getscale(Cr)), np.mean(getscale(Co)), np.mean(getscale(Cu)), np.mean(getscale(Rb))]) [0:nelem] 
+# all inputs are below 
+# read in all the values 
+T_est,g_est,feh_est,alpha_est, T_A, g_A, feh_A,rc_est = np.loadtxt(fn, usecols = (1,2,3,4,1,2,3,4), unpack =1) 
+Fe, C, N, O, Na, Mg, Al, Si, P, S, K, Ca, Ti, V, Cr, Mn,Co, Ni, Cu, mass = np.loadtxt(fn, usecols = (3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22), unpack =1)
+offsets = np.array([np.mean(rescale(T_est)), np.mean(rescale(g_est)), np.mean(rescale(feh_est)), np.mean(rescale(C)), np.mean(rescale(N)), np.mean(rescale(O)), np.mean(rescale(Na)), np.mean(rescale(Mg)), np.mean(rescale(Al)), np.mean(rescale(Si)), np.mean(rescale(P)), np.mean(rescale(S)), np.mean(rescale(K)), np.mean(rescale(Ca)), np.mean(rescale(Ti)), np.mean(rescale(V)), np.mean(rescale(Cr)), np.mean(rescale(Mn)), np.mean(rescale(Co)), np.mean(rescale(Ni)), np.mean(rescale(Cu)), np.mean(rescale(mass))]) 
+offsets = offsets[0:nelem]
+inputs = [T_est, g_est, feh_est, C, N, O, Na, Mg, Al, Si,P, S, K, Ca, Ti, V, Cr,Mn, Co, Ni, Cu, mass][0:nelem]
+labels = ["teff", "logg", "feh", "C", "N", "O", "Na", "Mg", "Al", "Si", "P", "S", "K", "Ca", "Ti", "V", "Cr", "Mn", "Co", "Ni", "Cu", "mass"][0:nelem]
+
+scales = np.array([np.mean(getscale(T_est)), np.mean(getscale(g_est)), np.mean(getscale(feh_est)), np.mean(getscale(C)), np.mean(getscale(N)), np.mean(getscale(O)), np.mean(getscale(Na)), np.mean(getscale(Mg)), np.mean(getscale(Al)), np.mean(getscale(Si)), np.mean(getscale(P)), np.mean(getscale(S)), np.mean(getscale(K)), np.mean(getscale(Ca)), np.mean(getscale(Ti)), np.mean(getscale(V)), np.mean(getscale(Cr)), np.mean(getscale(Mn)), np.mean(getscale(Co)), np.mean(getscale(Ni)), np.mean(getscale(Cu)), np.mean(getscale(mass))]) [0:nelem] 
+T_filt, g_filt, feh_filt, alpha_filt = np.loadtxt(fn_filt_1, usecols = (0,1,2,3), unpack =1)
+C_filt, N_filt, Al_filt, Mg_filt, Na_filt, O_filt, S_filt, V_filt, Mn_filt, Ni_filt = np.loadtxt(fn_filt, usecols = (3,4,10,9,8,5,13,20,22,25), unpack =1)
+Si_filt,P_filt, K_filt, Ca_filt, Cr_filt, Co_filt, Rb_filt, C_filt, N_filt, O_filt, Na_filt = np.loadtxt(fn_filt, usecols = (11,12,16,17,21,24,29,3,4,5,8), unpack =1)
+Ti_filt = np.loadtxt(fn_filt, usecols = (19,), unpack =1) 
+Fe_filt = np.loadtxt(fn_filt, usecols = (23,), unpack =1) 
+Cu_filt = np.loadtxt(fn_filt, usecols = (26,), unpack =1) 
+  
+T_est = rescale(T_est)
+g_est = rescale(g_est)
+feh_est = rescale(feh_est)
+mass = rescale(mass)
+alpha_est = rescale(alpha_est)
+C, N, O, Na, Mg, Al = rescale(C), rescale(N), rescale(O), rescale(Na), rescale(Mg), rescale(Al) 
+Si, S, K, Ca, Ti, V, Mn, Fe, Ni = rescale(Si), rescale(S), rescale(K), rescale(Ca), rescale(Ti), rescale(V), rescale(Mn), rescale(Fe), rescale(Ni) 
+P, Cr, Co  = rescale(P), rescale(Cr), rescale(Co)
+Cu = rescale(Cu) 
+
+# this goes into the function 
+label_array = [T_est, g_est, feh_est, C, N, O, Na, Mg, Al, Si, P,S, K, Ca, Ti, V,Cr, Mn, Co, Ni, Cu, mass][0:nelem]
+filter_array = [T_filt, g_filt, feh_filt, C_filt, N_filt, O_filt, Na_filt, Mg_filt, Al_filt, Si_filt, P_filt, S_filt, K_filt, Ca_filt, Ti_filt, V_filt, Cr_filt, Mn_filt, Co_filt, Ni_filt, Cu_filt, T_filt][0:nelem]
+if filteroff == 1: 
+  filter_array = [T_filt,g_filt,feh_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt][0:nelem]
 
 
 def weighted_median(values, weights, quantile):
@@ -261,7 +280,7 @@ def continuum_normalize(dataall, SNRall, delta_lambda=50):
     return dataall 
 
 def get_normalized_test_data_tsch_cal(testfile, pixlist):
-  name = 'cal_file_DR13'
+  name = 'cal_file_dr13'
   if glob.glob(name+'.pickle'):
     a = pyfits.open('cal_file_DR13.fits') 
     nstars = len(a[1].data)
@@ -288,8 +307,8 @@ def get_normalized_test_data_tsch_cal(testfile, pixlist):
     xdata = wl
     #ydata =hstack(([0]*322, flux[0:2921-1], [0]*406, flux[2921-1:2401+2921-1-1], [0]*364, flux[2921+2401-1-1:], [0]*269))
     #ysigma =hstack(([0]*322, error[0:2921-1], [0]*406, error[2921-1:2401+2921-1-1], [0]*364, error[2921+2401-1-1:], [0]*269))
-    ydata =hstack(([0]*246, flux[0:3028], [0]*311, flux[3028:3028+2495], [0]*264, flux[3028+2495:], [0]*239))
-    ysigma =hstack(([0]*246, error[0:3028], [0]*311, error[3028:3028+2495], [0]*264, error[3028+2495:], [0]*239))
+    ydata =hstack(([0]*246, flux[0:3028], [0]*311, flux[3028:3028+2495], [0]*264, flux[3028+2495:], [0]*240))# need to check this is actually correct
+    ysigma =hstack(([0]*246, error[0:3028], [0]*311, error[3028:3028+2495], [0]*264, error[3028+2495:], [0]*240))
     SNRall[jj] = SNR
     testdata[:, jj, 0] = xdata
     testdata[:, jj, 1] = ydata
@@ -516,35 +535,13 @@ def get_normalized_test_data(testfile,noise=0):
   file_in2.close()
   return testdata , ids # not yet implemented but at some point should probably save ids into the normed pickle file 
 
-def get_normalized_training_data_tsch(pixlist,numtake):
+def get_normalized_training_data_tsch(pixlist,numtake, label_array, labels, filter_array):
   if glob.glob(normed_training_data): 
         file_in2 = open(normed_training_data, 'r') 
         dataall, filterall, metaall, labels, Ametaall, cluster_name, ids = pickle.load(file_in2)
         file_in2.close()
         return dataall, filterall, metaall, labels, Ametaall, cluster_name, ids
   
-  T_est,g_est,feh_est,alpha_est, T_A, g_A, feh_A,rc_est = np.loadtxt(fn, usecols = (1,2,3,4,1,2,3,4), unpack =1) 
-  C, N, O, Na, Mg, Al, Si, P, S, K, Ca, Ti, V, Cr, Mn,Co, Fe, Ni,Cu, Rb = np.loadtxt(fn, usecols = (5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,26), unpack =1)
-  T_filt, g_filt, feh_filt, alpha_filt = np.loadtxt(fn_filt_1, usecols = (0,1,2,3), unpack =1)
-  C_filt, N_filt, Al_filt, Mg_filt, Na_filt, O_filt, S_filt, V_filt, Mn_filt, Ni_filt = np.loadtxt(fn_filt, usecols = (3,4,10,9,8,5,13,20,22,25), unpack =1)
-  Si_filt,P_filt, K_filt, Ca_filt, Cr_filt, Co_filt, Rb_filt, C_filt, N_filt, O_filt, Na_filt = np.loadtxt(fn_filt, usecols = (11,12,16,17,21,24,29,3,4,5,8), unpack =1)
-  Ti_filt = np.loadtxt(fn_filt, usecols = (19,), unpack =1) 
-  Fe_filt = np.loadtxt(fn_filt, usecols = (23,), unpack =1) 
-  Cu_filt = np.loadtxt(fn_filt, usecols = (26,), unpack =1) 
-  T_est = rescale(T_est)
-  g_est = rescale(g_est)
-  feh_est = rescale(feh_est)
-  alpha_est = rescale(alpha_est)
-  C, N, O, Na, Mg, Al = rescale(C), rescale(N), rescale(O), rescale(Na), rescale(Mg), rescale(Al) 
-  Si, S, K, Ca, Ti, V, Mn, Fe, Ni = rescale(Si), rescale(S), rescale(K), rescale(Ca), rescale(Ti), rescale(V), rescale(Mn), rescale(Fe), rescale(Ni) 
-  P, Cr, Co, Rb = rescale(P), rescale(Cr), rescale(Co), rescale(Rb) 
-  Cu = rescale(Cu) 
-  labels = ["teff", "logg", "feh", "C", "N", "O", "Na", "Mg", "Al", "Si", "S", "K", "Ca", "Ti", "V", "Mn", "Ni", "P", "Cr", "Co", "Cu", "Rb"][0:nelem]
-  label_array = [T_est, g_est, feh_est, C, N, O, Na, Mg, Al, Si, S, K, Ca, Ti, V, Mn, Ni, P, Cr, Co, Cu, Rb][0:nelem]
-  #filter_array = [T_filt, g_filt, feh_filt, C_filt, N_filt, O_filt, Na_filt, Mg_filt, Al_filt, Si_filt, S_filt, K_filt, Ca_filt, Ti_filt, V_filt, Mn_filt, Ni_filt, P_filt, Cr_filt, Co_filt, Cu_filt, Rb_filt][0:nelem]
-  filter_array = [T_filt, g_filt, feh_filt, C_filt, N_filt, O_filt, Na_filt, Mg_filt, Al_filt, Si_filt, S_filt, K_filt, Ca_filt, Ti_filt, V_filt, Mn_filt, Ni_filt, P_filt, Cr_filt, Co_filt, Cu_filt, Rb_filt][0:nelem]
-  if filteroff == 1: 
-    filter_array = [T_filt,g_filt,feh_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt,T_filt][0:nelem]
   
   a = open(fn, 'r')  
   al = a.readlines() 
@@ -676,10 +673,6 @@ def do_one_regression_at_fixed_scatter(args, **kwargs):
       coeff_full[a] = b
     chi = np.sqrt(Cinv) * (x - np.dot(M, coeff)) 
     logdet_Cinv = np.sum(np.log(Cinv)) 
-    #print nobjs, nmeta, D, filter_features_bool.shape, coeff_ind, filter1, filter_features,  np.linalg.eigvalsh(MTCinvM) 
-    #assert False 
-    #print type(coeff_full)
-    #print np.shape(coeff_full)
     return (coeff_full, MTCinvM, chi, logdet_Cinv )
 
 def do_one_regression(data, filter1, metadata):
@@ -1255,19 +1248,19 @@ if __name__ == "__main__":
     num1,num2=0,1640
     numtake = np.arange(0,1639,1)
     print 'main:reading normed data file' 
-    dataall, filterall, metaall, labels, Ametaall, cluster_name, ids = get_normalized_training_data_tsch(pixlist,numtake)
+    dataall, filterall, metaall, labels, Ametaall, cluster_name, ids = get_normalized_training_data_tsch(pixlist,numtake, label_array, labels, filter_array)
     fpickle2 = coeffs_file #"coeffs_dr13_filt.pickle"
     if not glob.glob(fpickle2):
         train(dataall, filterall, metaall, 2,  fpickle2, Ametaall, cluster_name, logg_cut= 40.,teff_cut = 0.)
-      #  assert False
     self_flag = 0
     #self_flag = 2
 
     if self_flag < 1:
       startTime = datetime.now()
+      #a = open('cal.txt', 'r') 
       #a = open('redclump.txt', 'r') 
-      a = open('cal.txt', 'r') 
-      #a = open('test.txt', 'r') 
+      a = open('redclump.txt', 'r') 
+    #  a = open('test.txt', 'r') 
       #a = open('all_test.txt', 'r') 
       al = a.readlines()
       bl = []
