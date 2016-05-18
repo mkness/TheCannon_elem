@@ -188,15 +188,12 @@ else:
 
 
 # to do item : Fix this 
+filteroff = 1 # if 1 filters are off, if 0 filters are on 
 filteroff = 0 # if 1 filters are off, if 0 filters are on 
 calflag = 0 # if 1 get the normalised calibrationd data and if 0 doing test on something else like redclump
-endval = 'nofilt_large_150416_3_cutdown'
-endval = 'filt_large_150416_3_CNO'
-endval = 'nofilt_large_150416_3'
-endval = 'filt_large_150416_3'
-endval = 'nofilt_large_150416_3'
-endval = 'nofilt_large_260416_1'
-endval = 'filt_large_260416_1'
+calflag = 1 # if 1 get the normalised calibrationd data and if 0 doing test on something else like redclump
+endval = 'nofilt_large_010516_1'
+endval = 'filt_large_010516_YS'
 normed_training_data = 'normed_dr13_'+endval+'.pickle'
 coeffs_file = "coeffs_dr13_"+endval+".pickle"
 tags_file = "tags_dr13_30eB_"+endval+".pickle"
@@ -204,8 +201,8 @@ tags_file = "tags_dr13_30eB_"+endval+".pickle"
 #fn = "training_dr13e2_large_cleaner.list"
 #fn = "training_dr13e2_large_test.list"
 #fn = "training_dr13e2_large_cleaner_H.list"
-fn = "training_dr13e2_large_cleaner_H_fix.list"
-fn_filt = 'mkn_filters_edit.txt' # this one now has the real filters in 
+fn = "training_dr13e2_large_cleaner_H_fix_dr13.list"
+fn_filt = 'YS_filters.txt' # this one now has the real filters in 
 fn_filt_1 = 'filters_14.txt' # this one now has the real filters in 
 nelem = 22
 #nelem = 14
@@ -409,16 +406,16 @@ def continuum_normalize(dataall, SNRall, delta_lambda=50):
     return dataall 
 
 def get_normalized_test_data_tsch_cal(testfile, pixlist):
-  name = 'cal'
+  name = 'cal_file_DR13'
   if glob.glob(name+'.pickle'):
-    a = pyfits.open('cal.fits') 
+    a = pyfits.open('cal_file_DR13.fits') 
     nstars = len(a[1].data)
     ids = a[1].data['APOGEE_ID']
     file_in2 = open(name+'.pickle', 'r')
     #testdata,ids = pickle.load(file_in2)
     testdata = pickle.load(file_in2)
     return testdata, ids
-  a = pyfits.open('cal.fits') 
+  a = pyfits.open('cal_file_DR13.fits') 
   nstars = len(a[1].data)
   ids = a[1].data['APOGEE_ID']
   nlam = len(a[2].data[0][0])
@@ -426,17 +423,18 @@ def get_normalized_test_data_tsch_cal(testfile, pixlist):
   testdata = np.zeros((nlam2, nstars, 3))
   SNRall = np.zeros((nstars))
   wavemin = a[3].data['WAVEMIN']
-  wavemax = a[3].data['WAVEMIN']
+  wavemax = a[3].data['WAVEMAX']
   wl = np.loadtxt("wl.txt", usecols = (0,), unpack =1) 
-  test3 =hstack(([0]*322, wl[0:2921-1], [0]*406, wl[2921-1:2401+2921-1-1], [0]*364, wl[2921+2401-1-1:], [0]*269))
   for jj in range(0,nstars):
     flux = a[2].data[jj][0]
     apid = a[1].data['APOGEE_ID']
     error = a[2].data[jj][1]
     SNR = a[1].data['SNR'][jj]
     xdata = wl
-    ydata =hstack(([0]*322, flux[0:2921-1], [0]*406, flux[2921-1:2401+2921-1-1], [0]*364, flux[2921+2401-1-1:], [0]*269))
-    ysigma =hstack(([0]*322, error[0:2921-1], [0]*406, error[2921-1:2401+2921-1-1], [0]*364, error[2921+2401-1-1:], [0]*269))
+    #ydata =hstack(([0]*322, flux[0:2921-1], [0]*406, flux[2921-1:2401+2921-1-1], [0]*364, flux[2921+2401-1-1:], [0]*269))
+    #ysigma =hstack(([0]*322, error[0:2921-1], [0]*406, error[2921-1:2401+2921-1-1], [0]*364, error[2921+2401-1-1:], [0]*269))
+    ydata =hstack(([0]*246, flux[0:3028], [0]*311, flux[3028:3028+2495], [0]*264, flux[3028+2495:], [0]*239))
+    ysigma =hstack(([0]*246, error[0:3028], [0]*311, error[3028:3028+2495], [0]*264, error[3028+2495:], [0]*239))
     SNRall[jj] = SNR
     testdata[:, jj, 0] = xdata
     testdata[:, jj, 1] = ydata
@@ -925,8 +923,9 @@ def get_goodness_fit(fn_pickle, filein, Params_all_scaled, MCM_rotate_all):
     assert (round(offsets[-1],4)) == round(schmoffsets[-1],4) 
     fd.close() 
     print str(filein)
-    if filein == 'cal_dr12':
-      file_with_star_data = 'cal.pickle'
+   # if filein == 'cal_file':
+    if calflag == 1:
+      file_with_star_data = 'cal_file_DR13.pickle'
     else: 
       file_with_star_data = str(filein)+"_alpha.pickle"
     file_normed = normed_training_data.split('.pickle')[0]
@@ -1407,12 +1406,13 @@ if __name__ == "__main__":
         train(dataall, filterall, metaall, 2,  fpickle2, Ametaall, cluster_name, logg_cut= 40.,teff_cut = 0.)
       #  assert False
     self_flag = 0
-    self_flag = 2
+    #self_flag = 2
 
     if self_flag < 1:
       startTime = datetime.now()
-      a = open('cal_dr12.txt', 'r') 
-      a = open('redclump.txt', 'r') 
+      #a = open('redclump.txt', 'r') 
+      a = open('cal.txt', 'r') 
+      #a = open('test.txt', 'r') 
       #a = open('all_test.txt', 'r') 
       al = a.readlines()
       bl = []
