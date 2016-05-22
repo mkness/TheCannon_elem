@@ -35,26 +35,28 @@ def getchi2(elem_array, error_matrix,elem1):
 
   feh_sort1 = feh[sort1] 
   # need to add the individual error for jj in here as well from the matrix - do later 
-  for jj,each,each_id in zip(counts, stars_scaled_sort1,stars_id_sort1):
+  for jj,each,each_errs,each_id in zip(counts, stars_scaled_sort1,stars_scaled_sort1_errs, stars_id_sort1):
       each = stars_scaled_sort1[jj] 
       each_err1 = stars_scaled_sort1_errs[jj] 
       each_id = stars_id_sort1[jj] 
       ind_each = list(stars_id_sort1).index(each_id) 
-      if ind_each < 150:
-         # this is just one star minus the closest 150 
-         chival =  ((each - stars_scaled_sort1[0:ind_each+150])**2)**0.5
-         # now multiply by the inverse covariance matrix 
-         ctake = cinv_sort1[0:150,:,:]
-         test = dot(chival, ctake**0.5) 
-         test2 = test*test
-         test3 =sum(test2**0.5,axis=1)
-         # above doing summing to make sense of dimensions 
-         chi_ind = stars_id_sort1[0:ind_each+150]
-         # then do the same below for the rest 
-      if ind_each >= 150:
-        ctake = cinv_sort1ind_each-150:ind_each+150,:,:]
-        chival =  ((each - stars_scaled_sort1[ind_each-150:ind_each+150]))**2
-        chi_ind = stars_id_sort1[ind_each-150:ind_each+150]
+      if ind_each < len(stars_scaled_sort1)-100:
+         # this is just one star minus and plus the closest 50 
+        minval = max([0,ind_each-50])
+        maxval = 100+minval 
+        chival =  ((each - stars_scaled_sort1[minval:maxval])**2)**0.5
+        ctake = cinv[minval:maxval,:,:] # have not run this through yet but try with the cinv of just the star under test 
+        test = dot(chival, ctake**0.5) 
+        test2 = test*test
+        test3 =sum(test2**0.5,axis=1)
+        chi_ind = stars_id_sort1[minval:maxval]
+      if ind_each >= len(stars_scaled_sort1)-100: 
+        minval = ind_each - 50 # len(stars_scaled_sort1)-100
+        maxval = minval+50
+        ctake = cinv[minval:maxval,:,:]
+        #ctake = cinv[ind_each,:,:]
+        chival =  ((each - stars_scaled_sort1[minval:maxval]))**2
+        chi_ind = stars_id_sort1[minval:maxval]
         test = dot(chival, ctake) 
         test2 = test*test
         test3 =sum(test2**0.5,axis=1)
@@ -67,5 +69,4 @@ def getchi2(elem_array, error_matrix,elem1):
       ids_all.append(chi2_ind_sorted) 
   chi2_all = array(chi2_all)
   ids_all = array(ids_all)
-  return chi2_all, ids_all 
-
+  return chi2_all, ids_all
